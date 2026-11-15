@@ -1,0 +1,227 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#10152b">
+    <title>EventSphere | University Events</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header class="topbar">
+        <a class="brand" href="/">Event<span>Sphere</span></a>
+        <nav>
+            <a href="#events">Explore</a>
+            <a href="#about">About</a>
+            <button id="loginNav" class="button button-outline">Login</button>
+            <button id="registerNav" class="button button-primary">Join now</button>
+            <button id="logoutBtn" class="button button-outline hidden">Logout</button>
+        </nav>
+    </header>
+
+    <main>
+        <section class="hero">
+            <div class="hero-content">
+                <span class="eyebrow">UNIVERSITY EVENTS • ONE PLATFORM</span>
+                <h1>Every event has a<br><span>place here.</span></h1>
+                <p>Discover university events, book your tickets, and manage venue experiences in one simple platform.</p>
+                <div class="hero-actions">
+                    <a href="#events" class="button button-primary">Explore events</a>
+                    <button class="button button-outline" id="heroLogin">Get started</button>
+                </div>
+                <div class="hero-stats">
+                    <div><strong id="heroEventCount">—</strong><small>Published events</small></div>
+                    <div><strong id="heroVenueCount">—</strong><small>Venues</small></div>
+                    <div><strong>24/7</strong><small>Online access</small></div>
+                </div>
+            </div>
+            <div class="hero-art">
+                <div class="orb orb-one"></div>
+                <div class="orb orb-two"></div>
+                <div class="hero-card">
+                    <span class="card-icon">✦</span>
+                    <p>YOUR NEXT EXPERIENCE</p>
+                    <h2>Discover.<br>Connect.<br>Celebrate.</h2>
+                    <span class="card-tag">EVENTSPHERE</span>
+                </div>
+            </div>
+        </section>
+
+        <section id="events" class="section">
+            <div class="section-heading">
+                <div>
+                    <span class="eyebrow">DISCOVER SOMETHING NEW</span>
+                    <h2>Upcoming events</h2>
+                    <p>Find your next university experience.</p>
+                </div>
+            </div>
+
+            <div class="filters">
+                <input id="searchInput" type="search" placeholder="Search events...">
+                <select id="categoryFilter">
+                    <option value="">All categories</option>
+                </select>
+                <button id="searchBtn" class="button button-primary">Search</button>
+            </div>
+
+            <div id="eventsGrid" class="events-grid">
+                <p class="muted">Loading events...</p>
+            </div>
+        </section>
+
+        <section id="about" class="section about-section">
+            <span class="eyebrow">BUILT FOR CAMPUS EXPERIENCES</span>
+            <h2>More than just event booking.</h2>
+            <div class="feature-grid">
+                <article class="feature">
+                    <span>🎟️</span>
+                    <h3>Digital tickets</h3>
+                    <p>Book tickets and receive unique QR codes for event entry.</p>
+                </article>
+                <article class="feature">
+                    <span>🏛️</span>
+                    <h3>Venue hire</h3>
+                    <p>Request university venues for private events and activities.</p>
+                </article>
+                <article class="feature">
+                    <span>🤖</span>
+                    <h3>Smart agents</h3>
+                    <p>Cooperating agents coordinate bookings, availability and notifications.</p>
+                </article>
+            </div>
+        </section>
+
+        <section id="accountSection" class="section account-section hidden">
+            <div class="section-heading">
+                <div>
+                    <span class="eyebrow">YOUR ACCOUNT</span>
+                    <h2 id="accountTitle">Dashboard</h2>
+                    <p id="welcomeText"></p>
+                </div>
+            </div>
+
+            <div id="attendeePanel" class="hidden">
+                <div class="panel">
+                    <h3>My bookings</h3>
+                    <div id="bookingHistory"></div>
+                </div>
+                <div class="panel">
+                    <h3>Private venue hire</h3>
+                    <form id="hireForm" class="form-grid">
+                        <label>Venue<select name="venue_id" id="hireVenue" required></select></label>
+                        <label>Start time<input name="start_time" type="datetime-local" required></label>
+                        <label>End time<input name="end_time" type="datetime-local" required></label>
+                        <label>Number of guests<input name="guest_count" type="number" min="1" required></label>
+                        <label class="full-width">Purpose<textarea name="purpose" required></textarea></label>
+                        <button class="button button-primary" type="submit">Submit hire request</button>
+                    </form>
+                    <div id="hireHistory"></div>
+                </div>
+                <div class="panel">
+                    <h3>Notifications</h3>
+                    <div id="notifications"></div>
+                </div>
+            </div>
+
+            <div id="adminPanel" class="hidden">
+                <div id="adminStats" class="stats-grid"></div>
+
+                <div class="panel">
+                    <h3>Create a venue</h3>
+                    <form id="venueForm" class="form-grid">
+                        <label>Venue name<input name="name" required></label>
+                        <label>Location<input name="location" required></label>
+                        <label>Capacity<input name="capacity" type="number" min="1" required></label>
+                        <label>Hourly rate (LKR)<input name="hourly_rate" type="number" min="0" step="0.01" required></label>
+                        <label>Image URL<input name="image"></label>
+                        <label class="checkbox-label"><input name="available_for_hire" type="checkbox" checked> Available for private hire</label>
+                        <label class="full-width">Description<textarea name="description"></textarea></label>
+                        <button class="button button-primary">Create venue</button>
+                    </form>
+                </div>
+
+                <div class="panel">
+                    <h3>Create an event</h3>
+                    <form id="eventForm" class="form-grid">
+                        <label>Event title<input name="title" required></label>
+                        <label>Category<input name="category" placeholder="Workshop, Sports, Music..." required></label>
+                        <label>Venue<select name="venue_id" id="eventVenue" required></select></label>
+                        <label>Start time<input name="start_time" type="datetime-local" required></label>
+                        <label>End time<input name="end_time" type="datetime-local" required></label>
+                        <label>Ticket category<input name="ticket_name" value="General" required></label>
+                        <label>Ticket price (LKR)<input name="ticket_price" type="number" min="0" step="0.01" required></label>
+                        <label>Ticket quantity<input name="ticket_quantity" type="number" min="1" required></label>
+                        <label class="full-width">Description<textarea name="description"></textarea></label>
+                        <button class="button button-primary">Create event draft</button>
+                    </form>
+                </div>
+
+                <div class="panel">
+                    <h3>Manage events</h3>
+                    <div id="adminEvents"></div>
+                </div>
+
+                <div class="panel">
+                    <h3>Venue hire requests</h3>
+                    <div id="adminHireRequests"></div>
+                </div>
+
+                <div class="panel">
+                    <h3>Agent communication log</h3>
+                    <div id="agentLogs"></div>
+                </div>
+            </div>
+
+            <div id="staffPanel" class="hidden">
+                <div class="panel">
+                    <h3>Ticket scanner</h3>
+                    <p class="muted">Enter the ticket code and event ID to validate entry.</p>
+                    <form id="scanForm" class="form-grid">
+                        <label>Ticket code<input name="code" required></label>
+                        <label>Event ID<input name="event_id" type="number" min="1" required></label>
+                        <button class="button button-primary">Validate and admit</button>
+                    </form>
+                    <div id="scanResult"></div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <a class="brand" href="/">Event<span>Sphere</span></a>
+        <p>University Event & Venue Booking Platform</p>
+        <p class="muted">Powered by a cooperating multi-agent system.</p>
+    </footer>
+
+    <div id="authModal" class="modal hidden">
+        <div class="modal-content">
+            <button id="closeModal" class="close-button" aria-label="Close">×</button>
+            <span class="eyebrow">WELCOME TO EVENTSPHERE</span>
+            <h2 id="authTitle">Login</h2>
+
+            <form id="authForm">
+                <div id="nameField" class="hidden">
+                    <label>Full name<input name="full_name" minlength="2"></label>
+                </div>
+                <label>Email<input name="email" type="email" required></label>
+                <label>Password<input name="password" type="password" minlength="8" required></label>
+                <button id="authSubmit" class="button button-primary full-button">Login</button>
+            </form>
+            <p id="authSwitch">New here? <button id="switchAuth" class="text-button">Create an account</button></p>
+            <div id="authMessage"></div>
+        </div>
+    </div>
+
+    <div id="eventModal" class="modal hidden">
+        <div class="modal-content">
+            <button id="closeEventModal" class="close-button" aria-label="Close">×</button>
+            <div id="eventDetails"></div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

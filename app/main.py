@@ -83,8 +83,7 @@ async def waitlist_scheduler():
 async def lifespan(app: FastAPI):
     create_tables()
 
-    scheduler = asyncio.create_task(waitlist_scheduler())
-        # TEMPORARY: Correct the demo Admin role in production
+         # TEMPORARY: Correct the demo Admin role in production
     fix_email = os.getenv("EVENTSPHERE_ADMIN_ROLE_FIX_EMAIL")
 
     if fix_email and fix_email.lower() == "admin@eventsphere.demo":
@@ -105,6 +104,29 @@ async def lifespan(app: FastAPI):
             raise
         finally:
             db.close()
+
+                # TEMPORARY: Correct demo Staff role
+    fix_staff_email = os.getenv("EVENTSPHERE_STAFF_ROLE_FIX_EMAIL")
+
+    if fix_staff_email and fix_staff_email.lower() == "staff@eventsphere.demo":
+        db = SessionLocal()
+        try:
+            staff_user = db.query(User).filter(
+                func.lower(User.email) == fix_staff_email.lower()
+            ).first()
+
+            if staff_user:
+                staff_user.role = "staff"
+                db.commit()
+                print("Demo Staff role corrected successfully.")
+            else:
+                print("Demo Staff account was not found.")
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+    scheduler = asyncio.create_task(waitlist_scheduler())
 
     yield
 

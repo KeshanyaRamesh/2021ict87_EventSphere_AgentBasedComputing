@@ -14,7 +14,9 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
 
-from app.database import get_db, create_tables
+import os
+
+from app.database import get_db, create_tables, SessionLocal
 from app.models import (
     User, Venue, Event, TicketCategory,
     Booking, Ticket, AgentMessage, VenueHireRequest, WaitlistEntry
@@ -82,6 +84,27 @@ async def lifespan(app: FastAPI):
     create_tables()
 
     scheduler = asyncio.create_task(waitlist_scheduler())
+        # TEMPORARY: Correct the demo Admin role in production
+    fix_email = os.getenv("EVENTSPHERE_ADMIN_ROLE_FIX_EMAIL")
+
+    if fix_email and fix_email.lower() == "admin@eventsphere.demo":
+        db = SessionLocal()
+        try:
+            admin_user = db.query(User).filter(
+                func.lower(User.email) == fix_email.lower()
+            ).first()
+
+            if admin_user:
+                admin_user.role = "admin"
+                db.commit()
+                print("Demo Admin role corrected successfully.")
+            else:
+                print("Demo Admin account was not found.")
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
 
     yield
 

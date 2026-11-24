@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 
 from app.agents.base import BaseAgent
 from app.database import SessionLocal
-from app.models import WaitlistEntry, TicketCategory
+from app.models import WaitlistEntry, TicketCategory, Event
 
 
 class WaitlistAgent(BaseAgent):
@@ -22,9 +22,11 @@ class WaitlistAgent(BaseAgent):
         offers = []
 
         try:
+            # Serialize offer allocation for this category on databases
+            # that support row-level locks (e.g. PostgreSQL).
             category = db.query(TicketCategory).filter(
                 TicketCategory.id == category_id
-            ).first()
+            ).with_for_update().first()
 
             if not category:
                 return offers
@@ -135,6 +137,17 @@ class WaitlistAgent(BaseAgent):
                     "reason": "Ticket category not found"
                 }
 
+            event = db.query(Event).filter(
+                Event.id == event_id,
+                Event.status == "published"
+            ).first()
+
+            if not event:
+                return {
+                    "success": False,
+                    "reason": "Event is not available for waitlisting"
+                }
+
             entry = WaitlistEntry(
                 user_id=user_id,
                 event_id=event_id,
@@ -159,10 +172,34 @@ class WaitlistAgent(BaseAgent):
         # Automatically offer tickets if available.
         offers = self.offer_available(category_id)
 
+        db = SessionLocal()
+        try:
+            entry = db.query(WaitlistEntry).filter(
+                WaitlistEntry.id == entry_id
+            ).first()
+
+            queue_position = None
+            if entry and entry.status == "waiting":
+                queue_position = db.query(WaitlistEntry).filter(
+                    WaitlistEntry.category_id == category_id,
+                    WaitlistEntry.status == "waiting",
+                    WaitlistEntry.id <= entry_id
+                ).count()
+
+            current_status = entry.status if entry else "waiting"
+        finally:
+            db.close()
+
         return {
             "success": True,
             "waitlist_id": entry_id,
-            "message": "Added to waitlist",
+            "status": current_status,
+            "queue_position": queue_position,
+            "message": (
+                "A ticket offer is ready for you"
+                if current_status == "offered"
+                else "Added to the waiting list in first-come, first-served order"
+            ),
             "offers": offers
         }
 
@@ -184,12 +221,16 @@ class WaitlistAgent(BaseAgent):
             ).all()
 
             categories = set()
+            expired_for_notifications = []
 
             for entry in expired:
 
                 entry.status = "expired"
 
                 categories.add(entry.category_id)
+                expired_for_notifications.append(
+                    (entry.user_id, entry.id)
+                )
 
             expired_count = len(expired)
 
@@ -202,6 +243,22 @@ class WaitlistAgent(BaseAgent):
 
         finally:
             db.close()
+
+        # Tell attendees their claim window ended.
+        for user_id, waitlist_id in expired_for_notifications:
+            self.send_message(
+                "NotificationAgent",
+                "INFORM",
+                {
+                    "user_id": user_id,
+                    "type": "waitlist_offer_expired",
+                    "waitlist_id": waitlist_id,
+                    "message": (
+                        "Your 10-minute ticket offer expired. "
+                        "The ticket has been offered to the next person in the queue."
+                    )
+                }
+            )
 
         # Offer released tickets to the next waiting attendees.
         new_offers = []

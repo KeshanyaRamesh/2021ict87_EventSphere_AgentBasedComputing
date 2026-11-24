@@ -28,12 +28,40 @@ class NotificationAgent(BaseAgent):
 
         notifications = self.get_belief(key, [])
 
+        notification_type = content.get("type", "general")
+
+        # Update the original offer notification when the attendee claims
+        # it or when the offer expires, so the website removes its action.
+        related_waitlist_id = content.get("waitlist_id")
+        if related_waitlist_id and notification_type in (
+            "waitlist_claimed", "waitlist_offer_expired"
+        ):
+            new_status = (
+                "claimed"
+                if notification_type == "waitlist_claimed"
+                else "expired"
+            )
+            for old_notification in notifications:
+                if old_notification.get("waitlist_id") == related_waitlist_id:
+                    old_notification["status"] = new_status
+
         notification = {
-            "type": content.get("type", "general"),
+            "type": notification_type,
             "message": content.get("message", "You have a new notification"),
             "created_at": __import__("datetime").datetime.utcnow().isoformat(),
             "conversation_id": message.get("conversation_id")
         }
+
+        # Keep actionable waitlist-offer details so the website can show
+        # a Claim Ticket button for the correct attendee.
+        for field in (
+            "waitlist_id", "event_id", "category_id", "expires_at"
+        ):
+            if field in content:
+                notification[field] = content[field]
+
+        if notification_type == "waitlist_offer":
+            notification["status"] = "active"
 
         notifications.append(notification)
 

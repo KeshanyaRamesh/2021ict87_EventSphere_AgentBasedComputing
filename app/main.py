@@ -17,7 +17,7 @@ from sqlalchemy import desc, func
 from app.database import get_db, create_tables
 from app.models import (
     User, Venue, Event, TicketCategory,
-    Booking, Ticket, AgentMessage, VenueHireRequest
+    Booking, Ticket, AgentMessage, VenueHireRequest, WaitlistEntry
 )
 from app.schemas import (
     UserCreate, UserLogin, TokenResponse,
@@ -227,7 +227,8 @@ def deliver_message(agent, sender, content):
 def notify_user(
     user_id: int,
     message: str,
-    notification_type: str = "general"
+    notification_type: str = "general",
+    metadata: dict | None = None
 ):
     MessageBus.send(
         "EventSphere",
@@ -236,7 +237,8 @@ def notify_user(
         {
             "user_id": user_id,
             "message": message,
-            "type": notification_type
+            "type": notification_type,
+            **(metadata or {})
         }
     )
 
@@ -1146,13 +1148,44 @@ def book_tickets(
     )
 
     if result.get("performative") != "AGREE":
-        raise HTTPException(
-            status_code=400,
-            detail=result.get("content", {}).get(
-                "reason",
-                "Booking rejected"
-            )
+        reason = result.get("content", {}).get(
+            "reason",
+            "Booking rejected"
         )
+
+        # A single-ticket booking that loses the last available seat is
+        # automatically placed at the end of the FIFO waitlist.
+        if reason == "Not enough tickets available" and data.quantity == 1:
+            waitlist_result = deliver_message(
+                waitlist_agent,
+                "BookingAgent",
+                {
+                    "action": "join_waitlist",
+                    "user_id": user.id,
+                    "event_id": data.event_id,
+                    "category_id": data.category_id
+                }
+            )
+
+            if waitlist_result.get("performative") == "AGREE":
+                notification_agent.process_inbox()
+                details = waitlist_result.get("content", {})
+                return {
+                    "status": details.get("status", "waiting"),
+                    "message": details.get(
+                        "message",
+                        "All tickets are sold. You have been added to the waiting list."
+                    ),
+                    "waitlist_id": details.get("waitlist_id"),
+                    "queue_position": details.get("queue_position")
+                }
+
+            reason = waitlist_result.get("content", {}).get(
+                "reason",
+                reason
+            )
+
+        raise HTTPException(status_code=400, detail=reason)
 
     booking_id = result["content"]["booking_id"]
 
@@ -1278,7 +1311,16 @@ def cancel_booking(
         "booking_cancelled"
     )
 
-    return result["content"]
+    # Return the released ticket(s) to the FIFO waitlist immediately.
+    category_id = result["content"].get("category_id")
+    released_offers = []
+    if category_id:
+        released_offers = waitlist_agent.offer_available(category_id)
+        notification_agent.process_inbox()
+
+    response = dict(result["content"])
+    response["waitlist_offers_created"] = len(released_offers)
+    return response
 
 
 # -------------------------------------------------
@@ -1341,7 +1383,108 @@ def join_waitlist(
             )
         )
 
+    notification_agent.process_inbox()
     return result["content"]
+
+
+@app.get("/api/waitlist/my-entries")
+def my_waitlist_entries(
+    user: User = Depends(require_role("attendee")),
+    db: Session = Depends(get_db)
+):
+    entries = db.query(WaitlistEntry).filter(
+        WaitlistEntry.user_id == user.id
+    ).order_by(WaitlistEntry.id.asc()).all()
+
+    result = []
+    for entry in entries:
+        position = None
+        if entry.status == "waiting":
+            position = db.query(WaitlistEntry).filter(
+                WaitlistEntry.category_id == entry.category_id,
+                WaitlistEntry.status == "waiting",
+                WaitlistEntry.id <= entry.id
+            ).count()
+
+        result.append({
+            "waitlist_id": entry.id,
+            "event_id": entry.event_id,
+            "category_id": entry.category_id,
+            "status": entry.status,
+            "queue_position": position,
+            "hold_expires_at": (
+                entry.hold_expires_at.isoformat()
+                if entry.hold_expires_at else None
+            )
+        })
+
+    return result
+
+
+@app.post("/api/waitlist/{waitlist_id}/claim")
+def claim_waitlist_offer(
+    waitlist_id: int,
+    user: User = Depends(require_role("attendee"))
+):
+    result = deliver_message(
+        booking_agent,
+        "WaitlistAgent",
+        {
+            "action": "claim_waitlist_offer",
+            "waitlist_id": waitlist_id,
+            "user_id": user.id
+        }
+    )
+
+    if result.get("performative") != "AGREE":
+        raise HTTPException(
+            status_code=400,
+            detail=result.get("content", {}).get(
+                "reason",
+                "Waitlist offer could not be claimed"
+            )
+        )
+
+    booking_details = result["content"]
+    ticket_result = deliver_message(
+        ticket_agent,
+        "BookingAgent",
+        {
+            "action": "issue_tickets",
+            "booking_id": booking_details["booking_id"]
+        }
+    )
+
+    if ticket_result.get("performative") != "INFORM":
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "The offer was claimed, but ticket issuance failed.",
+                "booking_id": booking_details["booking_id"],
+                "reason": ticket_result.get("content", {}).get(
+                    "reason",
+                    "Ticket issuance failed"
+                )
+            }
+        )
+
+    ticket_codes = ticket_result.get("content", {}).get("tickets", [])
+    notify_user(
+        user.id,
+        f"Your waitlist offer was claimed. Booking {booking_details['booking_id']} is confirmed.",
+        "waitlist_claimed",
+        {"waitlist_id": waitlist_id}
+    )
+
+    return {
+        "message": "Waitlist offer claimed. Your ticket is confirmed.",
+        "booking": booking_details,
+        "tickets": ticket_codes,
+        "qr_codes": [
+            generate_qr_base64(code)
+            for code in ticket_codes
+        ]
+    }
 
 
 # -------------------------------------------------

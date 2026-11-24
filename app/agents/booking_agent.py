@@ -1,12 +1,12 @@
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from sqlalchemy import update
 
 from app.agents.base import BaseAgent
 from app.database import SessionLocal
-from app.models import Event, TicketCategory, Booking, Ticket
+from app.models import Event, TicketCategory, Booking, Ticket, WaitlistEntry
 
 
 class BookingAgent(BaseAgent):
@@ -113,6 +113,119 @@ class BookingAgent(BaseAgent):
                     conversation_id
                 )
 
+            elif action == "claim_waitlist_offer":
+
+                waitlist_id = content.get("waitlist_id")
+                user_id = content.get("user_id")
+                now = datetime.utcnow()
+
+                entry = db.query(WaitlistEntry).filter(
+                    WaitlistEntry.id == waitlist_id,
+                    WaitlistEntry.user_id == user_id
+                ).first()
+
+                if not entry:
+                    return self.send_message(
+                        message["sender"], "REFUSE",
+                        {"reason": "Waitlist offer not found"},
+                        conversation_id
+                    )
+
+                event = db.query(Event).filter(
+                    Event.id == entry.event_id,
+                    Event.status == "published"
+                ).first()
+
+                category = db.query(TicketCategory).filter(
+                    TicketCategory.id == entry.category_id,
+                    TicketCategory.event_id == entry.event_id
+                ).with_for_update().first()
+
+                if not event or not category:
+                    db.rollback()
+                    return self.send_message(
+                        message["sender"], "REFUSE",
+                        {"reason": "The event or ticket category is no longer available"},
+                        conversation_id
+                    )
+
+                claimed = db.execute(
+                    update(WaitlistEntry)
+                    .where(
+                        WaitlistEntry.id == waitlist_id,
+                        WaitlistEntry.user_id == user_id,
+                        WaitlistEntry.status == "offered",
+                        WaitlistEntry.hold_expires_at > now
+                    )
+                    .values(status="claimed", hold_expires_at=None)
+                )
+
+                if claimed.rowcount != 1:
+                    db.rollback()
+                    return self.send_message(
+                        message["sender"], "REFUSE",
+                        {"reason": "This offer has expired or was already claimed"},
+                        conversation_id
+                    )
+
+                allocation = db.execute(
+                    update(TicketCategory)
+                    .where(
+                        TicketCategory.id == entry.category_id,
+                        TicketCategory.sold < TicketCategory.quantity
+                    )
+                    .values(sold=TicketCategory.sold + 1)
+                )
+
+                if allocation.rowcount != 1:
+                    db.rollback()
+                    return self.send_message(
+                        message["sender"], "REFUSE",
+                        {"reason": "The ticket is no longer available"},
+                        conversation_id
+                    )
+
+                reference = "EVS-" + uuid.uuid4().hex[:12].upper()
+
+                booking = Booking(
+                    user_id=user_id,
+                    event_id=entry.event_id,
+                    category_id=entry.category_id,
+                    quantity=1,
+                    total_amount=category.price,
+                    payment_reference=reference,
+                    status="confirmed",
+                    created_at=now
+                )
+
+                db.add(booking)
+                db.commit()
+                db.refresh(booking)
+
+                self.save_belief(
+                    f"booking_{booking.id}",
+                    {
+                        "user_id": user_id,
+                        "quantity": 1,
+                        "status": "confirmed",
+                        "source": "waitlist"
+                    }
+                )
+
+                return self.send_message(
+                    message["sender"], "AGREE",
+                    {
+                        "reason": "Waitlist offer claimed successfully",
+                        "booking_id": booking.id,
+                        "payment_reference": reference,
+                        "quantity": 1,
+                        "total_amount": category.price,
+                        "waitlist_id": waitlist_id,
+                        "next_action": "issue_tickets"
+                    },
+                    conversation_id
+                )
+
             elif action == "cancel_booking":
 
                 booking_id = content.get("booking_id")
@@ -143,7 +256,6 @@ class BookingAgent(BaseAgent):
 
                 if event.status == "cancelled":
                     refund = booking.total_amount
-
                 else:
                     hours_left = (
                         event.start_time - datetime.utcnow()
@@ -181,6 +293,8 @@ class BookingAgent(BaseAgent):
                     {
                         "reason": "Booking cancelled",
                         "booking_id": booking.id,
+                        "category_id": booking.category_id,
+                        "released_quantity": booking.quantity,
                         "refund_amount": round(refund, 2),
                         "refund_policy": "48+ hours: 100%, 24-48 hours: 50%, under 24 hours: 0%"
                     },

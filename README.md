@@ -39,7 +39,11 @@ The platform uses five cooperating intelligent software agents to coordinate ven
 - Duplicate, invalid, cancelled, and incorrect-event ticket rejection.
 - Private venue-hire requests and price calculation.
 - Venue conflict detection and alternative suggestions.
-- Waitlist registration and expiry processing.
+- Automatic first-come, first-served (FCFS) waitlisting when a single-ticket booking finds the category sold out.
+- Waitlist position is based on the database-generated entry ID (oldest entry first).
+- When a confirmed booking is cancelled, the released ticket is offered to the earliest waiting attendee.
+- Waitlist offers reserve a ticket for 10 minutes; the attendee can claim the offer to confirm the booking and receive a QR ticket.
+- Expired or unclaimed offers are passed to the next waiting attendee.
 - Attendee notifications.
 - Booking history, cancellation, and refund calculation.
 - Administrative dashboard and agent communication logs.
@@ -53,8 +57,20 @@ EventSphere consists of five cooperating agents:
 | VenueAgent | Checks venue availability, capacity, and scheduling conflicts. |
 | BookingAgent | Processes booking requests and manages ticket inventory. |
 | TicketAgent | Generates and validates digital tickets. |
-| WaitlistAgent | Manages waitlist entries and expired offers. |
+| WaitlistAgent | Maintains FIFO waitlist order, offers released tickets, and advances expired offers. |
 | NotificationAgent | Handles and stores user notifications. |
+
+### First-Come, First-Served Waitlist Flow
+
+1. The BookingAgent atomically checks and updates the ticket-category inventory.
+2. If a single-ticket booking finds no inventory, the API automatically asks the WaitlistAgent to add the attendee to the queue.
+3. The WaitlistAgent orders waiting entries by ascending database ID, preserving the order in which entries were accepted.
+4. When a confirmed booking is cancelled, the released inventory is offered to the oldest waiting attendee(s).
+5. Each offer holds one ticket for 10 minutes. The attendee claims it through the notification shown in the website.
+6. The BookingAgent validates the offer, marks it as claimed only once, and atomically allocates the ticket. The TicketAgent then issues the QR code.
+7. If the offer expires, the WaitlistAgent offers the ticket to the next waiting attendee.
+
+**Current limitation:** each waitlist entry represents one ticket. The automatic waitlist path is for a one-ticket booking request; multi-ticket requests are not split into separate queue entries.
 
 ### Agent Communication
 
@@ -126,125 +142,3 @@ EventSphere/
 ├── .gitignore
 ├── README.md
 └── requirements.txt
-```
-
-## 🚀 Run Locally
-
-### Prerequisites
-
-- Python 3.11 or later
-- pip
-- Git
-
-### Step 1 – Clone the repository
-
-```bash
-git clone https://github.com/KeshanyaRamesh/2021ict87_EventSphere_AgentBasedComputing.git
-```
-
-### Step 2 – Navigate into the project
-
-```bash
-cd 2021ict87_EventSphere_AgentBasedComputing
-```
-
-### Step 3 – Create a virtual environment
-
-```bash
-python -m venv venv
-```
-
-### Step 4 – Activate the virtual environment
-
-Windows PowerShell:
-
-```powershell
-.\venv\Scripts\Activate.ps1
-```
-
-### Step 5 – Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### Step 6 – Configure environment variables
-
-```powershell
-Copy-Item .env.example .env
-```
-
-Update the `.env` file with a strong, unique secret key.
-
-Example local configuration:
-
-```env
-DATABASE_URL=sqlite:///./eventsphere.db
-SECRET_KEY=your-strong-secret-key
-```
-
-### Step 7 – Run the application
-
-```bash
-python -m uvicorn app.main:app --reload
-```
-
-### Step 8 – Open EventSphere
-
-| Service | URL |
-|---|---|
-| Local Website | http://127.0.0.1:8000 |
-| Local Swagger API | http://127.0.0.1:8000/docs |
-| Live Website | https://two021ict87-eventsphere.onrender.com |
-| Live Swagger API | https://two021ict87-eventsphere.onrender.com/docs |
-
-## 🧪 Testing
-
-Run the automated test suite:
-
-```bash
-python -m pytest -q
-```
-
-The recorded development test result was **17 passed**.
-
-Tests cover agent messaging, booking inventory rules, venue availability, ticket validation, waitlist behaviour, and notification persistence.
-
-## ☁️ Deployment
-
-EventSphere is deployed as a cloud-hosted web service using **Render**.
-
-- **Platform:** Render
-- **Application:** FastAPI Web Service
-- **Database:** Hosted PostgreSQL
-- **Deployment URL:** https://two021ict87-eventsphere.onrender.com
-- **API Documentation:** https://two021ict87-eventsphere.onrender.com/docs
-
-## 🎓 Academic Information
-
-| Detail | Information |
-|---|---|
-| Module | IT4123 – Agent Based Computing Practical |
-| Assessment | ICA 02 |
-| Institution | University of Vavuniya |
-| Registration Number | 2021/ICT/87 |
-| Student | Keshanya Ramesh |
-
-## 👩‍💻 Author
-
-**Keshanya Ramesh**
-
-BSc (Hons) Information Technology  
-University of Vavuniya
-
-GitHub: [@KeshanyaRamesh](https://github.com/KeshanyaRamesh)
-
----
-
-<p align="center">
-
-  **EventSphere – Every Event Has a Place Here.**
-
-  🌐 [Visit the Live Website](https://two021ict87-eventsphere.onrender.com)
-
-</p>
